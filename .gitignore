@@ -20,3 +20,8 @@ build/
 # OS Files
 .DS_Store
 Thumbs.db
+
+# Executables and downloaded binaries
+backend/bin/
+*.exe
+*.temp

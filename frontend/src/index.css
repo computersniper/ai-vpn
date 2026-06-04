@@ -425,6 +425,12 @@ input:checked + .slider:before {
   border: 1px solid rgba(245, 158, 11, 0.3);
 }
 
+.badge-singbox {
+  background: rgba(0, 255, 136, 0.15);
+  color: var(--accent-green);
+  border: 1px solid rgba(0, 255, 136, 0.3);
+}
+
 .profile-name {
   font-weight: bold;
   font-size: 0.9rem;

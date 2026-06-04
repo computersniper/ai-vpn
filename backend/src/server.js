@@ -4,8 +4,9 @@ import http from 'http';
 import cors from 'cors';
 import { getDb, updateDb, logAction } from './db.js';
 import { startProxyServer, setUpstreamProxy, enableGitProxy, disableGitProxy, enableWindowsSystemProxy, disableWindowsSystemProxy } from './proxy-manager.js';
-import { startOpenVpn, stopOpenVpn, getVpnState } from './vpn-manager.js';
+import { startOpenVpn, startSingbox, stopTunnel, getVpnState } from './vpn-manager.js';
 import { runDiagnostics, triggerHealing, startHealthCheckLoop, stopHealthCheckLoop } from './health-check.js';
+import { fetchSubscription } from './subscription-parser.js';
 
 const app = express();
 app.use(cors());
@@ -170,8 +171,7 @@ app.post('/api/connect', enforceOverride, async (req, res) => {
   
   try {
     if (profile.type === 'proxy') {
-      // Clean up OpenVPN if running
-      stopOpenVpn();
+      stopTunnel();
       
       const config = JSON.parse(profile.content);
       setUpstreamProxy(config);
@@ -182,13 +182,20 @@ app.post('/api/connect', enforceOverride, async (req, res) => {
         await enableGitProxy();
       }
     } else if (profile.type === 'openvpn') {
-      // Revert upstream proxy settings to direct, route system via tunnel
       setUpstreamProxy({ direct: true });
       await disableGitProxy();
       
       await startOpenVpn(profile, () => {
         global.broadcastStatus();
       });
+    } else if (profile.type === 'singbox') {
+      setUpstreamProxy({ direct: true });
+      await disableGitProxy();
+      
+      await startSingbox(profile, () => {
+        global.broadcastStatus();
+      });
+      await enableGitProxy();
     }
 
     updateDb(data => {
@@ -215,7 +222,7 @@ app.post('/api/disconnect', enforceOverride, async (req, res) => {
   logAction(source, 'info', 'Disconnecting client and resetting to direct route...');
   
   try {
-    stopOpenVpn();
+    stopTunnel();
     setUpstreamProxy({ direct: true });
     await disableGitProxy();
     await disableWindowsSystemProxy();
@@ -230,6 +237,47 @@ app.post('/api/disconnect', enforceOverride, async (req, res) => {
   } catch (err) {
     logAction('system', 'error', `Disconnection error: ${err.message}`);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Import subscription profiles
+app.post('/api/subscription/import', enforceOverride, async (req, res) => {
+  const { url } = req.body;
+  const source = req.headers['x-request-source'] || 'ai';
+  if (!url) return res.status(400).json({ error: 'Subscription URL is required' });
+  
+  try {
+    const nodes = await fetchSubscription(url);
+    let importCount = 0;
+    
+    updateDb(db => {
+      for (const node of nodes) {
+        const existing = db.profiles.find(p => 
+          p.name === node.nodeName || 
+          (p.type === 'singbox' && JSON.parse(p.content).host === node.host)
+        );
+        
+        if (!existing) {
+          const newProfile = {
+            id: `profile-sb-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            name: node.nodeName,
+            type: 'singbox',
+            content: JSON.stringify(node),
+            latency: null,
+            lastConnected: null
+          };
+          db.profiles.push(newProfile);
+          importCount++;
+        }
+      }
+    });
+    
+    logAction(source, 'info', `Successfully imported ${importCount} new nodes from subscription.`);
+    global.broadcastStatus();
+    res.json({ success: true, count: importCount });
+  } catch (err) {
+    logAction('system', 'error', `Subscription import failed: ${err.message}`);
+    res.status(500).json({ error: `Import failed: ${err.message}` });
   }
 });
 
@@ -315,6 +363,9 @@ async function bootstrap() {
       }
     } else if (activeProfile.type === 'openvpn') {
       await startOpenVpn(activeProfile);
+    } else if (activeProfile.type === 'singbox') {
+      await startSingbox(activeProfile);
+      await enableGitProxy();
     }
   } catch (err) {
     logAction('system', 'error', `Failed to apply initial profile: ${err.message}`);

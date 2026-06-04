@@ -14,6 +14,9 @@ export default function App() {
   const [logs, setLogs] = useState([]);
   const [wsConnected, setWsConnected] = useState(false);
   
+  // Exit IP Info
+  const [ipInfo, setIpInfo] = useState({ ip: 'Offline', country: 'Unknown', region: 'Unknown' });
+
   // Diagnostics
   const [diagnosticLoading, setDiagnosticLoading] = useState(false);
   const [diagnosticResult, setDiagnosticResult] = useState({
@@ -29,13 +32,15 @@ export default function App() {
   // UI state
   const [logFilter, setLogFilter] = useState('all'); // 'all', 'system', 'openvpn', 'ai', 'human'
   const [showAddForm, setShowAddForm] = useState(false);
+  const [importTab, setImportTab] = useState('subscription'); // 'subscription' or 'single'
+  const [subUrl, setSubUrl] = useState('https://cdn3.beibeicloud.shop/api/v1/f481962698758f8408b3d90942f3c8a6');
+  
+  // Single node configuration state
   const [newProfileName, setNewProfileName] = useState('');
   const [newProfileType, setNewProfileType] = useState('proxy'); // 'proxy', 'openvpn'
-  // Proxy options
   const [proxyHost, setProxyHost] = useState('127.0.0.1');
   const [proxyPort, setProxyPort] = useState('7890');
   const [proxyProtocol, setProxyProtocol] = useState('socks5');
-  // OpenVPN option
   const [ovpnContent, setOvpnContent] = useState('');
 
   // Simulated traffic speeds
@@ -90,13 +95,13 @@ export default function App() {
           setProfiles(data.profiles);
           setSettings(data.settings);
         } else if (type === 'log') {
-          setLogs(prev => [...prev, data].slice(-300)); // limit to 300 logs in memory
+          setLogs(prev => [...prev, data].slice(-300));
         }
       };
 
       ws.onclose = () => {
         setWsConnected(false);
-        setTimeout(connectWs, 3000); // Retry reconnect in 3s
+        setTimeout(connectWs, 3000);
       };
 
       ws.onerror = () => {
@@ -107,12 +112,15 @@ export default function App() {
     }
   };
 
-  // Trigger diagnostic pings
+  // Trigger diagnostic pings & fetch Exit IP location
   const refreshDiagnostics = async () => {
     setDiagnosticLoading(true);
     try {
       const status = await apiCall('/status');
       setDiagnosticResult(status.diagnostics);
+      if (status.diagnostics.ipInfo) {
+        setIpInfo(status.diagnostics.ipInfo);
+      }
     } catch (err) {
       console.error('Diagnostic error:', err);
     } finally {
@@ -136,11 +144,9 @@ export default function App() {
     
     const interval = setInterval(() => {
       if (isConnected) {
-        // Connected speed fluctuations
         setDownSpeed(Math.max(12, Math.floor(Math.random() * 2500) + 1200));
         setUpSpeed(Math.max(3, Math.floor(Math.random() * 400) + 180));
       } else {
-        // Disconnected
         setDownSpeed(0);
         setUpSpeed(0);
       }
@@ -170,7 +176,7 @@ export default function App() {
   const handleConnectProfile = async (id) => {
     try {
       await apiCall('/connect', 'POST', { id });
-      setTimeout(refreshDiagnostics, 4000); // Trigger ping check after it settles
+      setTimeout(refreshDiagnostics, 4000);
     } catch (err) {
       alert(`Connection failed: ${err.message}`);
     }
@@ -188,13 +194,14 @@ export default function App() {
   const handleTriggerHeal = async () => {
     try {
       await apiCall('/heal', 'POST');
+      setTimeout(refreshDiagnostics, 5000);
     } catch (err) {
       alert(`Healing failed: ${err.message}`);
     }
   };
 
   const handleDeleteProfile = async (e, id) => {
-    e.stopPropagation(); // prevent connecting click
+    e.stopPropagation();
     if (!confirm('Are you sure you want to delete this profile?')) return;
     try {
       await apiCall(`/profiles/${id}`, 'DELETE');
@@ -225,13 +232,28 @@ export default function App() {
         type: newProfileType,
         content
       });
-      // Reset form
       setNewProfileName('');
       setNewProfileType('proxy');
       setOvpnContent('');
       setShowAddForm(false);
     } catch (err) {
       alert(`Add profile failed: ${err.message}`);
+    }
+  };
+
+  const handleImportSubscription = async (e) => {
+    e.preventDefault();
+    if (!subUrl) return alert('Subscription URL is required');
+    
+    setDiagnosticLoading(true);
+    try {
+      const res = await apiCall('/subscription/import', 'POST', { url: subUrl });
+      alert(`Successfully imported ${res.count} new subscription nodes!`);
+      setShowAddForm(false);
+    } catch (err) {
+      alert(`Subscription import failed: ${err.message}`);
+    } finally {
+      setDiagnosticLoading(false);
     }
   };
 
@@ -334,6 +356,14 @@ export default function App() {
                   {activeProfileId === 'direct-default' ? 'DIRECT' : (activeProfile?.type?.toUpperCase() || 'PROXY')}
                 </span>
               </div>
+
+              {/* Exit Geolocation (Independent of Host VPN) */}
+              <div className="status-item" style={{ gridColumn: 'span 2' }}>
+                <span className="status-item-label">Exit Geolocation (Isolated Proxy Test)</span>
+                <span className="status-item-value" style={{ fontSize: '0.9rem', color: 'var(--accent-cyan)' }}>
+                  {ipInfo.ip !== 'Offline' ? `${ipInfo.ip} (${ipInfo.country} - ${ipInfo.region})` : 'Awaiting Diagnostic Ping...'}
+                </span>
+              </div>
             </div>
 
             {/* Traffic Dial Stats */}
@@ -419,87 +449,122 @@ export default function App() {
               </button>
             </div>
 
-            {/* Locked screen overlay for AI configuration */}
-            {humanOverride && (
-              <div className="connection-lock-overlay" style={{ display: 'none' /* We keep UI interactive for humans, overlay only for AI requests, but here we can show a banner */ }}></div>
-            )}
-
-            {/* Profile Import Form */}
+            {/* Profile Import Form (Tabs: Single Node / Subscription) */}
             {showAddForm && (
-              <form className="profile-form" onSubmit={handleAddProfile}>
-                <div className="form-group">
-                  <label>Node Label/Name</label>
-                  <input 
-                    type="text" 
-                    className="input-text" 
-                    placeholder="e.g. US West Node"
-                    value={newProfileName}
-                    onChange={e => setNewProfileName(e.target.value)}
-                    required
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>Protocol Connection Type</label>
-                  <select 
-                    className="select-input" 
-                    value={newProfileType} 
-                    onChange={e => setNewProfileType(e.target.value)}
+              <div className="profile-form">
+                <div style={{ display: 'flex', gap: '10px', marginBottom: '15px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+                  <button 
+                    type="button" 
+                    className={`filter-btn ${importTab === 'subscription' ? 'active' : ''}`}
+                    onClick={() => setImportTab('subscription')}
                   >
-                    <option value="proxy">Upstream Proxy (HTTP/SOCKS5)</option>
-                    <option value="openvpn">OpenVPN Profile (.ovpn)</option>
-                  </select>
+                    Import Subscription
+                  </button>
+                  <button 
+                    type="button" 
+                    className={`filter-btn ${importTab === 'single' ? 'active' : ''}`}
+                    onClick={() => setImportTab('single')}
+                  >
+                    Custom Node (Manual)
+                  </button>
                 </div>
 
-                {newProfileType === 'proxy' ? (
-                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '8px' }}>
+                {importTab === 'subscription' ? (
+                  <form onSubmit={handleImportSubscription} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     <div className="form-group">
-                      <label>Host IP/Domain</label>
+                      <label>Subscription URL Link (Trojan / anytls Base64)</label>
                       <input 
-                        type="text" 
-                        className="input-text"
-                        value={proxyHost}
-                        onChange={e => setProxyHost(e.target.value)}
+                        type="url" 
+                        className="input-text" 
+                        placeholder="Paste subscription link here..."
+                        value={subUrl}
+                        onChange={e => setSubUrl(e.target.value)}
+                        required
                       />
                     </div>
+                    <div className="form-actions">
+                      <button type="submit" className="btn btn-primary" disabled={diagnosticLoading}>
+                        {diagnosticLoading ? 'Fetching Tunnels...' : '📥 Fetch & Import Tunnels'}
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <form onSubmit={handleAddProfile} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     <div className="form-group">
-                      <label>Port</label>
+                      <label>Node Label/Name</label>
                       <input 
                         type="text" 
-                        className="input-text"
-                        value={proxyPort}
-                        onChange={e => setProxyPort(e.target.value)}
+                        className="input-text" 
+                        placeholder="e.g. US West Node"
+                        value={newProfileName}
+                        onChange={e => setNewProfileName(e.target.value)}
+                        required
                       />
                     </div>
+
                     <div className="form-group">
-                      <label>Protocol</label>
+                      <label>Protocol Connection Type</label>
                       <select 
-                        className="select-input"
-                        value={proxyProtocol}
-                        onChange={e => setProxyProtocol(e.target.value)}
+                        className="select-input" 
+                        value={newProfileType} 
+                        onChange={e => setNewProfileType(e.target.value)}
                       >
-                        <option value="socks5">SOCKS5</option>
-                        <option value="http">HTTP</option>
+                        <option value="proxy">Upstream Proxy (HTTP/SOCKS5)</option>
+                        <option value="openvpn">OpenVPN Profile (.ovpn)</option>
                       </select>
                     </div>
-                  </div>
-                ) : (
-                  <div className="form-group">
-                    <label>OVPN Configuration Text</label>
-                    <textarea 
-                      rows="6" 
-                      className="textarea-input"
-                      placeholder="Paste complete #ovpn file contents here..."
-                      value={ovpnContent}
-                      onChange={e => setOvpnContent(e.target.value)}
-                    ></textarea>
-                  </div>
-                )}
 
-                <div className="form-actions">
-                  <button type="submit" className="btn btn-primary">Import & Save</button>
-                </div>
-              </form>
+                    {newProfileType === 'proxy' ? (
+                      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '8px' }}>
+                        <div className="form-group">
+                          <label>Host IP/Domain</label>
+                          <input 
+                            type="text" 
+                            className="input-text"
+                            value={proxyHost}
+                            onChange={e => setProxyHost(e.target.value)}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Port</label>
+                          <input 
+                            type="text" 
+                            className="input-text"
+                            value={proxyPort}
+                            onChange={e => setProxyPort(e.target.value)}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Protocol</label>
+                          <select 
+                            className="select-input"
+                            value={proxyProtocol}
+                            onChange={e => setProxyProtocol(e.target.value)}
+                          >
+                            <option value="socks5">SOCKS5</option>
+                            <option value="http">HTTP</option>
+                          </select>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="form-group">
+                        <label>OVPN Configuration Text</label>
+                        <textarea 
+                          rows="6" 
+                          className="textarea-input"
+                          placeholder="Paste complete #ovpn file contents here..."
+                          value={ovpnContent}
+                          onChange={e => setOvpnContent(e.target.value)}
+                        ></textarea>
+                      </div>
+                    )}
+
+                    <div className="form-actions">
+                      <button type="submit" className="btn btn-primary">Import & Save</button>
+                    </div>
+                  </form>
+                )}
+              </div>
             )}
 
             <div className="profile-list-container">
