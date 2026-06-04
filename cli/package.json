@@ -1,0 +1,10 @@
+{
+  "name": "ai-vpn-cli",
+  "version": "1.0.0",
+  "description": "CLI Client for AI-VPN Daemon",
+  "type": "module",
+  "bin": {
+    "ai-vpn": "./bin/ai-vpn.js"
+  },
+  "dependencies": {}
+}
