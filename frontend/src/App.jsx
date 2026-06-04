@@ -33,7 +33,7 @@ export default function App() {
   const [logFilter, setLogFilter] = useState('all'); // 'all', 'system', 'openvpn', 'ai', 'human'
   const [showAddForm, setShowAddForm] = useState(false);
   const [importTab, setImportTab] = useState('subscription'); // 'subscription' or 'single'
-  const [subUrl, setSubUrl] = useState('https://cdn3.beibeicloud.shop/api/v1/f481962698758f8408b3d90942f3c8a6');
+  const [subUrl, setSubUrl] = useState('');
   
   // Single node configuration state
   const [newProfileName, setNewProfileName] = useState('');

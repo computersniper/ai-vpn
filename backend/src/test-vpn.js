@@ -6,20 +6,20 @@ async function testSubscriptionParser() {
   console.log('🧪 Running Test: Subscription Node Parser...');
   
   // Test case 1: Standard AnyTLS node url
-  const testUrl = 'anytls://409ce011-c3ac-4bd4-a433-3d0ee5236d6b@old1.beibei1.top:33400?insecure=1#%E7%BE%8E%E5%9B%BD%E7%9B%B4%E8%BF%9E-0.5%E5%80%8D%E7%8E%87';
+  const testUrl = 'anytls://11111111-2222-3333-4444-555555555555@node1.dummyproxy.net:33400?insecure=1#%E7%BE%8E%E5%9B%BD%E7%9B%B4%E8%BF%9E-0.5%E5%80%8D%E7%8E%87';
   const node = parseNodeUrl(testUrl);
   
   assert.ok(node, 'Node parsing returned null');
   assert.strictEqual(node.protocol, 'anytls', 'Protocol should be anytls');
-  assert.strictEqual(node.uuid, '409ce011-c3ac-4bd4-a433-3d0ee5236d6b', 'UUID is incorrect');
-  assert.strictEqual(node.host, 'old1.beibei1.top', 'Hostname is incorrect');
+  assert.strictEqual(node.uuid, '11111111-2222-3333-4444-555555555555', 'UUID is incorrect');
+  assert.strictEqual(node.host, 'node1.dummyproxy.net', 'Hostname is incorrect');
   assert.strictEqual(node.port, 33400, 'Port is incorrect');
   assert.strictEqual(node.nodeName, '美国直连-0.5倍率', 'Node name decoding failed');
   assert.strictEqual(node.insecure, true, 'Insecure flag should be true');
   assert.strictEqual(node.isInfo, false, 'Node should not be flagged as informational text');
 
   // Test case 2: Info text node filtering
-  const infoUrl = 'anytls://409ce011-c3ac-4bd4-a433-3d0ee5236d6b@old1.beibei1.top:33400?insecure=1#%E5%89%A9%E4%BD%99%E6%B5%81%E9%87%8F%EF%BC%9A66.44%20GB';
+  const infoUrl = 'anytls://11111111-2222-3333-4444-555555555555@node1.dummyproxy.net:33400?insecure=1#%E5%89%A9%E4%BD%99%E6%B5%81%E9%87%8F%EF%BC%9A66.44%20GB';
   const infoNode = parseNodeUrl(infoUrl);
   assert.ok(infoNode, 'Info node parsing returned null');
   assert.strictEqual(infoNode.isInfo, true, 'Node with traffic limit info should be flagged as informational');
